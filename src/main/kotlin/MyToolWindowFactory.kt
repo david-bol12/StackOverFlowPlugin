@@ -16,6 +16,7 @@ import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -112,6 +113,10 @@ private fun StackOverflowSearchPanel(project: Project, openUrl: (String) -> Unit
         modifier = Modifier.fillMaxSize().padding(12.dp).verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
+        if (service.queries.size > 1) {
+            ErrorNavigationBar(service)
+        }
+
         TextArea(
             state = queryState,
             modifier = Modifier.fillMaxWidth().height(90.dp),
@@ -134,6 +139,34 @@ private fun StackOverflowSearchPanel(project: Project, openUrl: (String) -> Unit
         service.results.forEach { result ->
             ResultCard(result, openUrl)
         }
+    }
+}
+
+@Composable
+private fun ErrorNavigationBar(service: StackOverflowSearchService) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        OutlinedButton(
+            onClick = { service.navigateTo(service.currentIndex - 1) },
+            enabled = service.currentIndex > 0
+        ) { Text("←") }
+
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                "Error ${service.currentIndex + 1} / ${service.queries.size}",
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            if (service.isLoading) Text("Loading…", fontSize = 11.sp)
+        }
+
+        OutlinedButton(
+            onClick = { service.navigateTo(service.currentIndex + 1) },
+            enabled = service.currentIndex < service.queries.size - 1
+        ) { Text("→") }
     }
 }
 

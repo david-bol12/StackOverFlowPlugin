@@ -20,9 +20,10 @@ class SearchStackOverflowAction : AnAction() {
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
         val editor = e.getData(CommonDataKeys.EDITOR) ?: return
-        val rawQuery = resolveQuery(editor, project)
+        val language = resolveLanguage(e)
+        val queries = resolveAllQueries(editor, project, language)
 
-        if (rawQuery.isNullOrBlank()) {
+        if (queries.isEmpty()) {
             Messages.showInfoMessage(
                 project,
                 "Select an error message or place the caret on an error to search Stack Overflow.",
@@ -31,39 +32,37 @@ class SearchStackOverflowAction : AnAction() {
             return
         }
 
-        val language = resolveLanguage(e)
-        val query = if (language != null) "$language $rawQuery" else rawQuery
-
-        project.service<StackOverflowSearchService>().search(query)
+        project.service<StackOverflowSearchService>().searchAll(queries)
         ToolWindowManager.getInstance(project).getToolWindow("Stack Overflow Search")?.show()
     }
 
     private fun resolveLanguage(e: AnActionEvent): String? {
         val psiLang = e.getData(CommonDataKeys.PSI_FILE)?.language?.displayName
         if (psiLang != null && psiLang !in GENERIC_LANGUAGE_NAMES) return psiLang
-
         val fileTypeName = e.getData(CommonDataKeys.VIRTUAL_FILE)?.fileType?.name
         return fileTypeName?.takeIf { it !in GENERIC_LANGUAGE_NAMES }
     }
 
-    private fun resolveQuery(editor: Editor, project: Project?): String? {
+    private fun resolveAllQueries(editor: Editor, project: Project, language: String?): List<String> {
         val selected = editor.selectionModel.selectedText
-        if (!selected.isNullOrBlank()) return ErrorQueryPreprocessor.preprocess(selected)
+        if (!selected.isNullOrBlank()) {
+            val q = buildQuery(ErrorQueryPreprocessor.preprocess(selected), language)
+            return if (q.isNotBlank()) listOf(q) else emptyList()
+        }
 
-        project ?: return null
-
-        val offset = editor.caretModel.offset
         val infos = ReadAction.compute<List<com.intellij.codeInsight.daemon.impl.HighlightInfo>, RuntimeException> {
             DaemonCodeAnalyzerImpl.getHighlights(editor.document, HighlightSeverity.WARNING, project)
         }
 
         return infos
-            .filter { it.startOffset <= offset && offset <= it.endOffset }
             .mapNotNull { it.description }
-            .joinToString(" ")
-            .takeIf { it.isNotBlank() }
-            ?.let { ErrorQueryPreprocessor.preprocess(it) }
+            .distinct()
+            .map { buildQuery(ErrorQueryPreprocessor.preprocess(it), language) }
+            .filter { it.isNotBlank() }
     }
+
+    private fun buildQuery(raw: String, language: String?) =
+        if (language != null) "$language $raw" else raw
 
     override fun update(e: AnActionEvent) {
         e.presentation.isEnabledAndVisible = e.getData(CommonDataKeys.EDITOR) != null
