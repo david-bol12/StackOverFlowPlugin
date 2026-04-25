@@ -1,6 +1,7 @@
 package com.example
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -25,24 +26,80 @@ import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
+import com.intellij.ui.jcef.JBCefApp
+import com.intellij.ui.jcef.JBCefBrowser
+import javax.swing.UIManager as SwingUIManager
+import org.cef.browser.CefBrowser
+import org.cef.browser.CefFrame
+import org.cef.handler.CefLoadHandlerAdapter
 import org.jetbrains.jewel.bridge.addComposeTab
 import org.jetbrains.jewel.ui.component.OutlinedButton
 import org.jetbrains.jewel.ui.component.Text
 import org.jetbrains.jewel.ui.component.TextArea
-import androidx.compose.foundation.border
+import java.awt.BorderLayout
+import javax.swing.JButton
+import javax.swing.JPanel
 
 class MyToolWindowFactory : ToolWindowFactory {
+    private var jcefBrowser: JBCefBrowser? = null
+
     override fun shouldBeAvailable(project: Project) = true
 
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
+        val openUrl: (String) -> Unit = { url -> openInBuiltinBrowser(toolWindow, url) }
         toolWindow.addComposeTab("Stack Overflow Search", focusOnClickInside = true) {
-            StackOverflowSearchPanel(project)
+            StackOverflowSearchPanel(project, openUrl)
         }
+    }
+
+    private fun openInBuiltinBrowser(toolWindow: ToolWindow, url: String) {
+        if (!JBCefApp.isSupported()) {
+            BrowserUtil.browse(url)
+            return
+        }
+        val cm = toolWindow.contentManager
+        val existing = cm.findContent("Browser")
+        if (existing != null) {
+            jcefBrowser?.loadURL(url)
+            cm.setSelectedContent(existing)
+            return
+        }
+
+        val browser = JBCefBrowser(url)
+        jcefBrowser = browser
+
+        browser.jbCefClient.addLoadHandler(object : CefLoadHandlerAdapter() {
+            override fun onLoadEnd(cefBrowser: CefBrowser?, frame: CefFrame?, httpStatusCode: Int) {
+                if (frame?.isMain != true) return
+                val bg = SwingUIManager.getColor("Panel.background")
+                val isDark = bg != null &&
+                    (bg.red * 299 + bg.green * 587 + bg.blue * 114) < 128_000
+                val scheme = if (isDark) "dark" else "light"
+                cefBrowser?.executeJavaScript(
+                    "document.documentElement.setAttribute('data-color-scheme','$scheme');",
+                    cefBrowser.url, 0
+                )
+            }
+        }, browser.cefBrowser)
+
+        val wrapper = JPanel(BorderLayout())
+        val backBtn = JButton("← Back to Results").apply {
+            addActionListener {
+                cm.findContent("Stack Overflow Search")?.let { cm.setSelectedContent(it) }
+            }
+        }
+        wrapper.add(backBtn, BorderLayout.NORTH)
+        wrapper.add(browser.component, BorderLayout.CENTER)
+
+        val content = cm.factory.createContent(wrapper, "Browser", false)
+        content.isCloseable = true
+        cm.addContent(content)
+        cm.setSelectedContent(content)
     }
 }
 
 @Composable
-private fun StackOverflowSearchPanel(project: Project) {
+private fun StackOverflowSearchPanel(project: Project, openUrl: (String) -> Unit) {
     val service = project.service<StackOverflowSearchService>()
     val queryState = rememberTextFieldState()
 
@@ -75,13 +132,13 @@ private fun StackOverflowSearchPanel(project: Project) {
         }
 
         service.results.forEach { result ->
-            ResultCard(result)
+            ResultCard(result, openUrl)
         }
     }
 }
 
 @Composable
-private fun ResultCard(result: SearchResult) {
+private fun ResultCard(result: SearchResult, openUrl: (String) -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -101,7 +158,7 @@ private fun ResultCard(result: SearchResult) {
             Text("Score: ${result.score}", fontSize = 11.sp)
             Text("Answers: ${result.answerCount}", fontSize = 11.sp)
         }
-        OutlinedButton(onClick = { BrowserUtil.browse(result.link) }) {
+        OutlinedButton(onClick = { openUrl(result.link) }) {
             Text("View on Stack Overflow")
         }
     }
