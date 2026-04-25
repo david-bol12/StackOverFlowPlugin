@@ -16,7 +16,7 @@ class BuildErrorListener(private val project: Project) : CompilationStatusListen
             .firstOrNull()?.message ?: return
 
         ApplicationManager.getApplication().invokeLater {
-            project.service<StackOverflowSearchService>().updateError(firstError)
+            project.service<StackOverflowSearchService>().search(ErrorQueryPreprocessor.preprocess(firstError))
             ToolWindowManager.getInstance(project).getToolWindow("Stack Overflow Search")?.show()
         }
     }
