@@ -1,6 +1,23 @@
 package com.example
 
-object ErrorQueryPreprocessor {
+import com.intellij.util.PlatformUtils
+
+// ---------------------------------------------------------------------------
+// Strategy interface — one implementation per language / platform family.
+// To add a new language: add a new private object below and one branch in
+// ErrorQueryPreprocessor.strategy. Nothing else needs to change.
+// ---------------------------------------------------------------------------
+
+private interface PreprocessorStrategy {
+    fun processLine(line: String): String
+}
+
+// ---------------------------------------------------------------------------
+// Java / Kotlin strategy (IntelliJ IDEA)
+// All original logic lives here, completely unchanged.
+// ---------------------------------------------------------------------------
+
+private object JavaKotlinStrategy : PreprocessorStrategy {
 
     private val libraryPrefixes = listOf(
         "java.", "javax.", "jakarta.",
@@ -22,15 +39,7 @@ object ErrorQueryPreprocessor {
     // Matches: "/path/to/File.kt:42:10: error: message" or "File.kt:42: error: message"
     private val compilerErrorRegex = Regex("""^(.+?):(\d+)(?::\d+)?:\s*(error|warning|note):\s*(.+)$""")
 
-    fun preprocess(raw: String): String =
-        raw.lines()
-            .map { processLine(it.trim()) }
-            .filter { it.isNotBlank() }
-            .joinToString(" ")
-            .replace(Regex("\\s+"), " ")
-            .trim()
-
-    private fun processLine(line: String): String {
+    override fun processLine(line: String): String {
         // Drop "location: ..." lines — they describe the call site, not the error
         if (line.startsWith("location:")) return ""
 
@@ -61,4 +70,41 @@ object ErrorQueryPreprocessor {
 
     private fun isLibraryClass(className: String) =
         libraryPrefixes.any { className.startsWith(it) }
+}
+
+// ---------------------------------------------------------------------------
+// C / C++ strategy (CLion)
+// ---------------------------------------------------------------------------
+
+private object CppStrategy : PreprocessorStrategy {
+    private val hexAddressRegex  = Regex("""0x[0-9a-fA-F]+""")
+    // Strips simple (non-nested) template argument lists, e.g. std::vector<int>
+    private val templateArgsRegex = Regex("""<[^<>]*>""")
+
+    override fun processLine(line: String): String {
+        // Drop "note:" lines — they describe related context, not the error itself
+        if (line.startsWith("note:")) return ""
+        return line
+            .replace(hexAddressRegex, "")    // strip memory addresses
+            .replace(templateArgsRegex, "")  // strip template arguments
+            .trim()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Public façade — picks strategy at runtime; signature is unchanged.
+// ---------------------------------------------------------------------------
+
+object ErrorQueryPreprocessor {
+
+    private val strategy: PreprocessorStrategy
+        get() = if (PlatformUtils.isCLion()) CppStrategy else JavaKotlinStrategy
+
+    fun preprocess(raw: String): String =
+        raw.lines()
+            .map { strategy.processLine(it.trim()) }
+            .filter { it.isNotBlank() }
+            .joinToString(" ")
+            .replace(Regex("\\s+"), " ")
+            .trim()
 }

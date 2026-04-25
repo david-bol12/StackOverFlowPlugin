@@ -1,0 +1,11 @@
+<idea-plugin>
+    <!--
+        Loaded only when com.intellij.java is present (IntelliJ IDEA).
+        Registers the CompilationStatusListener that feeds Java/Kotlin
+        build errors into the Stack Overflow Search tool window.
+    -->
+    <projectListeners>
+        <listener class="com.example.BuildErrorListener"
+                  topic="com.intellij.openapi.compiler.CompilationStatusListener"/>
+    </projectListeners>
+</idea-plugin>

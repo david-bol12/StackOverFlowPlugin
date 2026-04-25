@@ -12,8 +12,14 @@
         </ul>
     ]]></description>
 
+    <!-- Base requirement: Compose UI runtime -->
     <depends>com.intellij.modules.compose</depends>
-    <depends>com.intellij.java</depends>
+
+    <!--
+        com.intellij.java is optional so the plugin loads in CLion (no Java plugin).
+        plugin-idea.xml registers the CompilationStatusListener only when present.
+    -->
+    <depends optional="true" config-file="plugin-idea.xml">com.intellij.java</depends>
 
     <resource-bundle>messages.MyMessageBundle</resource-bundle>
 
@@ -26,8 +32,17 @@
     </extensions>
 
     <projectListeners>
-        <listener class="com.example.BuildErrorListener"
-                  topic="com.intellij.openapi.compiler.CompilationStatusListener"/>
+        <!-- CLion: CMake / ninja / make build errors via BuildProgressListener.
+             In IntelliJ IDEA this listener is also registered but ClionBuildAdapter
+             checks PlatformUtils.isCLion() and is a no-op when false. -->
+        <listener class="com.example.ClionBuildProgressListener"
+                  topic="com.intellij.build.BuildProgressListener"/>
+
+        <!-- ADD NEW IDE: register its listener class and topic here, then add one
+             branch in IdeBuildAdapterFactory and create the adapter class.
+             Example:
+        <listener class="com.example.RiderBuildListener"
+                  topic="com.jetbrains.rider.build.RiderBuildListener"/> -->
     </projectListeners>
 
     <actions>
