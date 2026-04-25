@@ -1,34 +1,42 @@
 <!-- Plugin Configuration File. Read more: https://plugins.jetbrains.com/docs/intellij/plugin-configuration-file.html -->
 <idea-plugin>
-    <!-- Unique identifier of the plugin. It should be FQN. It cannot be changed between the plugin versions. -->
     <id>com.example.stackoverflow-plugin</id>
-
-    <!-- Public plugin name should be written in Title Case.
-     Guidelines: https://plugins.jetbrains.com/docs/marketplace/best-practices-for-listing.html#plugin-name -->
-    <name>Stackoverflow-plugin</name>
-
-    <!-- A displayed Vendor name or Organization ID displayed on the Plugins Page. -->
-    <vendor url="https://www.yourcompany.com">YourCompany</vendor>
-
-    <!-- Description of the plugin displayed on the Plugin Page and IDE Plugin Manager.
-         Guidelines: https://plugins.jetbrains.com/docs/marketplace/best-practices-for-listing.html#plugin-description -->
+    <name>Stack Overflow Error Search</name>
+    <vendor>YourCompany</vendor>
     <description><![CDATA[
-        Enter short description for your plugin here.<br>
-        <em>most HTML tags may be used</em>
-        ]]></description>
+        Search Stack Overflow for errors without leaving the IDE.<br/>
+        <ul>
+            <li>Build errors are <b>automatically</b> populated in the Stack Overflow Search tool window</li>
+            <li>Right-click selected error text in the editor → <b>Search Stack Overflow</b></li>
+            <li>Place the caret on an underlined error and press <b>Ctrl+Shift+F1</b></li>
+        </ul>
+    ]]></description>
 
-    <!-- Product and plugin compatibility requirements.
-         Read more: https://plugins.jetbrains.com/docs/intellij/plugin-compatibility.html -->
     <depends>com.intellij.modules.compose</depends>
     <depends>com.intellij.java</depends>
 
     <resource-bundle>messages.MyMessageBundle</resource-bundle>
 
-    <!-- Extensions defined by the plugin.
-         Read more: https://plugins.jetbrains.com/docs/intellij/plugin-extension-points.html -->
     <extensions defaultExtensionNs="com.intellij">
-        <toolWindow id="MyToolWindow" factoryClass="com.example.MyToolWindowFactory"
+        <toolWindow id="Stack Overflow Search"
+                    factoryClass="com.example.MyToolWindowFactory"
+                    anchor="bottom"
                     icon="AllIcons.Toolwindows.ToolWindowPalette"/>
+        <projectService serviceImplementation="com.example.StackOverflowSearchService"/>
     </extensions>
 
+    <projectListeners>
+        <listener class="com.example.BuildErrorListener"
+                  topic="com.intellij.openapi.compiler.CompilationStatusListener"/>
+    </projectListeners>
+
+    <actions>
+        <action id="com.example.SearchStackOverflow"
+                class="com.example.SearchStackOverflowAction"
+                text="Search Stack Overflow"
+                description="Search Stack Overflow for the selected text or the error at the caret">
+            <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift F1"/>
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+        </action>
+    </actions>
 </idea-plugin>
