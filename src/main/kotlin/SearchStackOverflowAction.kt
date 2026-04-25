@@ -9,6 +9,8 @@ import com.intellij.openapi.actionSystem.CommonDataKeys
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.components.service
 import com.intellij.openapi.editor.Editor
+import com.intellij.openapi.fileEditor.FileDocumentManager
+import com.intellij.openapi.fileEditor.OpenFileDescriptor
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.wm.ToolWindowManager
@@ -21,7 +23,7 @@ class SearchStackOverflowAction : AnAction() {
         val project = e.project ?: return
         val editor = e.getData(CommonDataKeys.EDITOR) ?: return
         val language = resolveLanguage(e)
-        val queries = resolveAllQueries(editor, project, language)
+        val (queries, locations) = resolveAllQueriesWithLocations(editor, project, language)
 
         if (queries.isEmpty()) {
             Messages.showInfoMessage(
@@ -32,7 +34,7 @@ class SearchStackOverflowAction : AnAction() {
             return
         }
 
-        project.service<StackOverflowSearchService>().searchAll(queries)
+        project.service<StackOverflowSearchService>().searchAll(queries, locations)
         ToolWindowManager.getInstance(project).getToolWindow("Stack Overflow Search")?.show()
     }
 
@@ -43,22 +45,36 @@ class SearchStackOverflowAction : AnAction() {
         return fileTypeName?.takeIf { it !in GENERIC_LANGUAGE_NAMES }
     }
 
-    private fun resolveAllQueries(editor: Editor, project: Project, language: String?): List<String> {
+    private fun resolveAllQueriesWithLocations(
+        editor: Editor,
+        project: Project,
+        language: String?
+    ): Pair<List<String>, List<ErrorLocation?>> {
         val selected = editor.selectionModel.selectedText
         if (!selected.isNullOrBlank()) {
             val q = buildQuery(ErrorQueryPreprocessor.preprocess(selected), language)
-            return if (q.isNotBlank()) listOf(q) else emptyList()
+            return if (q.isNotBlank()) listOf(q) to listOf(null) else emptyList<String>() to emptyList()
         }
+
+        val file = FileDocumentManager.getInstance().getFile(editor.document)
 
         val infos = ReadAction.compute<List<com.intellij.codeInsight.daemon.impl.HighlightInfo>, RuntimeException> {
             DaemonCodeAnalyzerImpl.getHighlights(editor.document, HighlightSeverity.WARNING, project)
         }
 
-        return infos
-            .mapNotNull { it.description }
-            .distinct()
-            .map { buildQuery(ErrorQueryPreprocessor.preprocess(it), language) }
-            .filter { it.isNotBlank() }
+        data class Entry(val query: String, val location: ErrorLocation?)
+
+        val entries = infos
+            .mapNotNull { info ->
+                val desc = info.description ?: return@mapNotNull null
+                val q = buildQuery(ErrorQueryPreprocessor.preprocess(desc), language)
+                if (q.isBlank()) return@mapNotNull null
+                val nav = if (file != null) OpenFileDescriptor(project, file, info.startOffset) else null
+                Entry(q, ErrorLocation(nav, info.startOffset, info.endOffset))
+            }
+            .distinctBy { it.query }
+
+        return entries.map { it.query } to entries.map { it.location }
     }
 
     private fun buildQuery(raw: String, language: String?) =

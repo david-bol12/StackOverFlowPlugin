@@ -9,9 +9,19 @@ import androidx.compose.runtime.snapshots.SnapshotStateList
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.editor.ScrollType
+import com.intellij.openapi.fileEditor.FileEditorManager
+import com.intellij.openapi.project.Project
+import com.intellij.pom.Navigatable
+
+data class ErrorLocation(
+    val navigatable: Navigatable?,
+    val startOffset: Int = -1,
+    val endOffset: Int = -1
+)
 
 @Service(Service.Level.PROJECT)
-class StackOverflowSearchService {
+class StackOverflowSearchService(private val project: Project) {
     private val LOG = Logger.getInstance(StackOverflowSearchService::class.java)
 
     var queries = mutableStateListOf<String>()
@@ -22,6 +32,7 @@ class StackOverflowSearchService {
     private val allResults = mutableStateMapOf<Int, SnapshotStateList<SearchResult>>()
     private val allErrors = mutableStateMapOf<Int, String?>()
     private val loadingSet = mutableStateListOf<Int>()
+    private val locationList = mutableListOf<ErrorLocation?>()
 
     val loadingAnswers = mutableStateListOf<Long>()
 
@@ -32,20 +43,32 @@ class StackOverflowSearchService {
 
     fun search(query: String) = searchAll(listOf(query))
 
-    fun searchAll(newQueries: List<String>) {
+    fun searchAll(newQueries: List<String>, newLocations: List<ErrorLocation?> = emptyList()) {
         if (newQueries.isEmpty()) return
         LOG.info("searchAll() with ${newQueries.size} queries")
         queries.clear()
         allResults.clear()
         allErrors.clear()
         loadingSet.clear()
+        locationList.clear()
         currentIndex = 0
         queries.addAll(newQueries)
+        repeat(newQueries.size) { i -> locationList.add(newLocations.getOrNull(i)) }
         newQueries.forEachIndexed { i, q -> loadAt(i, q) }
     }
 
     fun navigateTo(index: Int) {
         currentIndex = index.coerceIn(0, queries.size - 1)
+        val loc = locationList.getOrNull(currentIndex) ?: return
+        ApplicationManager.getApplication().invokeLater {
+            loc.navigatable?.navigate(false)
+            if (loc.startOffset >= 0 && loc.endOffset > loc.startOffset) {
+                FileEditorManager.getInstance(project).selectedTextEditor?.apply {
+                    selectionModel.setSelection(loc.startOffset, loc.endOffset)
+                    scrollingModel.scrollToCaret(ScrollType.CENTER)
+                }
+            }
+        }
     }
 
     private fun loadAt(index: Int, query: String) {
