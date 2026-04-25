@@ -1,6 +1,6 @@
 package com.example
 
-import org.jetbrains.jewel.ui.Orientation
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -8,30 +8,28 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.intellij.ide.BrowserUtil
 import com.intellij.openapi.components.service
-import com.intellij.openapi.ide.CopyPasteManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
 import org.jetbrains.jewel.bridge.addComposeTab
-import org.jetbrains.jewel.ui.component.Divider
 import org.jetbrains.jewel.ui.component.OutlinedButton
 import org.jetbrains.jewel.ui.component.Text
 import org.jetbrains.jewel.ui.component.TextArea
-import java.awt.datatransfer.StringSelection
+import androidx.compose.foundation.border
 
 class MyToolWindowFactory : ToolWindowFactory {
     override fun shouldBeAvailable(project: Project) = true
@@ -49,86 +47,62 @@ private fun StackOverflowSearchPanel(project: Project) {
     val queryState = rememberTextFieldState()
 
     LaunchedEffect(service.currentQuery) {
-        val error = service.currentQuery
-        if (error.isNotBlank()) {
-            queryState.setTextAndPlaceCursorAtEnd(error)
-        }
+        val q = service.currentQuery
+        if (q.isNotBlank()) queryState.setTextAndPlaceCursorAtEnd(q)
     }
 
     Column(
-        modifier = Modifier.fillMaxSize().padding(16.dp),
+        modifier = Modifier.fillMaxSize().padding(12.dp).verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Text("Error message (auto-populated on build failure):")
         TextArea(
             state = queryState,
-            modifier = Modifier.fillMaxWidth().height(120.dp),
-            placeholder = { Text("e.g. NullPointerException: Cannot invoke method on null object") }
+            modifier = Modifier.fillMaxWidth().height(90.dp),
+            placeholder = { Text("Paste an error or select text in editor…") }
         )
         OutlinedButton(
             onClick = { service.search(queryState.text.toString()) },
+            modifier = Modifier.fillMaxWidth(),
             enabled = queryState.text.isNotEmpty() && !service.isLoading
         ) {
-            Text(if (service.isLoading) "Searching..." else "Search Stack Overflow")
+            Text(if (service.isLoading) "Searching…" else "Search Stack Overflow")
         }
 
-        service.searchError?.let { err ->
-            Text("Error: $err")
-        }
+        service.searchError?.let { Text("Error: $it") }
 
         if (!service.isLoading && service.currentQuery.isNotBlank() && service.results.isEmpty() && service.searchError == null) {
             Text("No results found.")
         }
 
-        if (service.results.isNotEmpty()) {
-            LazyColumn(
-                modifier = Modifier.fillMaxWidth().weight(1f),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(service.results) { result ->
-                    ResultCard(result, service)
-                    Divider(orientation = Orientation.Horizontal, modifier = Modifier.padding(top = 8.dp))
-                }
-            }
+        service.results.forEach { result ->
+            ResultCard(result)
         }
     }
 }
 
 @Composable
-private fun ResultCard(result: SearchResult, service: StackOverflowSearchService) {
-    var copied by remember(result.questionId) { mutableStateOf(false) }
-    val isLoadingAnswer = service.loadingAnswers.contains(result.questionId)
-
+private fun ResultCard(result: SearchResult) {
     Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(4.dp)
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(BorderStroke(1.dp, Color.Gray.copy(alpha = 0.35f)), RoundedCornerShape(6.dp))
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        Text(result.title)
-        Text(result.excerpt)
-        Text("Score: ${result.score}  |  Answers: ${result.answerCount}")
+        Text(result.title, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+        val body = result.answerBody
+        if (body != null) {
+            val preview = if (body.length > 400) body.take(400).trimEnd() + "…" else body
+            Text(preview, fontSize = 12.sp)
+        } else {
+            Text(result.excerpt, fontSize = 12.sp)
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = { BrowserUtil.browse(result.link) }) {
-                Text("Open in Browser")
-            }
-            OutlinedButton(
-                onClick = {
-                    service.copyTopAnswer(result.questionId) { text ->
-                        if (text != null) {
-                            CopyPasteManager.getInstance().setContents(StringSelection(text))
-                            copied = true
-                        }
-                    }
-                },
-                enabled = !isLoadingAnswer
-            ) {
-                Text(
-                    when {
-                        isLoadingAnswer -> "Loading..."
-                        copied -> "Copied!"
-                        else -> "Copy Solution"
-                    }
-                )
-            }
+            Text("Score: ${result.score}", fontSize = 11.sp)
+            Text("Answers: ${result.answerCount}", fontSize = 11.sp)
+        }
+        OutlinedButton(onClick = { BrowserUtil.browse(result.link) }) {
+            Text("View on Stack Overflow")
         }
     }
 }

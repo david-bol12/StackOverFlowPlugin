@@ -20,7 +20,7 @@
     <extensions defaultExtensionNs="com.intellij">
         <toolWindow id="Stack Overflow Search"
                     factoryClass="com.example.MyToolWindowFactory"
-                    anchor="bottom"
+                    anchor="right"
                     icon="AllIcons.Toolwindows.ToolWindowPalette"/>
         <projectService serviceImplementation="com.example.StackOverflowSearchService"/>
     </extensions>

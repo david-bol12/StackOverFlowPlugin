@@ -7,4 +7,5 @@ data class SearchResult(
     val score: Int,
     val answerCount: Int,
     val link: String,
+    val answerBody: String? = null,
 )

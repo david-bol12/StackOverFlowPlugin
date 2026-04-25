@@ -27,7 +27,7 @@ object StackOverflowApiClient {
             LOG.warn("SO response missing 'items': $json")
             return emptyList()
         }
-        return items
+        val results = items
             .take(3)
             .mapNotNull { el ->
                 runCatching {
@@ -35,14 +35,44 @@ object StackOverflowApiClient {
                     val qId = obj.get("question_id").asLong
                     SearchResult(
                         questionId = qId,
-                        title = obj.get("title").asString.decodeHtmlEntities(),
-                        excerpt = obj.get("excerpt").asString.decodeHtmlEntities(),
+                        title = obj.get("title").asString.decodeHtmlEntities().stripHtmlTags(),
+                        excerpt = obj.get("excerpt").asString.decodeHtmlEntities().stripHtmlTags(),
                         score = obj.get("score")?.asInt ?: 0,
                         answerCount = obj.get("answer_count")?.asInt ?: 0,
                         link = obj.get("link")?.asString ?: "https://stackoverflow.com/q/$qId",
                     )
                 }.onFailure { LOG.warn("Failed to parse SO item: $el", it) }.getOrNull()
             }
+
+        if (results.isEmpty()) return results
+
+        val topAnswers = fetchTopAnswersBatch(results.map { it.questionId })
+        return results.map { it.copy(answerBody = topAnswers[it.questionId]) }
+    }
+
+    private fun fetchTopAnswersBatch(questionIds: List<Long>): Map<Long, String> {
+        val ids = questionIds.joinToString(";")
+        val filter = getBodyFilter()
+        val json = runCatching {
+            get("$BASE/questions/$ids/answers?order=desc&sort=votes&site=stackoverflow&filter=$filter")
+        }.getOrElse { LOG.warn("Failed to fetch answers batch", it); return emptyMap() }
+
+        val answersByQuestion = mutableMapOf<Long, Pair<Int, String>>()
+        JsonParser.parseString(json).asJsonObject
+            .getAsJsonArray("items")
+            ?.forEach { el ->
+                runCatching {
+                    val obj = el.asJsonObject
+                    val qId = obj.get("question_id").asLong
+                    val score = obj.get("score")?.asInt ?: 0
+                    val body = obj.get("body")?.asString?.htmlToPlainText() ?: return@runCatching
+                    val current = answersByQuestion[qId]
+                    if (current == null || score > current.first) {
+                        answersByQuestion[qId] = score to body
+                    }
+                }.onFailure { LOG.warn("Failed to parse answer item: $el", it) }
+            }
+        return answersByQuestion.mapValues { it.value.second }
     }
 
     fun fetchTopAnswerText(questionId: Long): String? {
@@ -76,6 +106,9 @@ object StackOverflowApiClient {
         return httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8)).body()
     }
 }
+
+private fun String.stripHtmlTags(): String =
+    replace(Regex("<[^>]+>"), " ").replace(Regex("\\s{2,}"), " ").trim()
 
 private fun String.decodeHtmlEntities(): String =
     replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
