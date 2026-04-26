@@ -52,8 +52,10 @@ src/main/kotlin/
   IdeBuildAdapterFactory.kt        # Factory: picks IdeaBuildAdapter or ClionBuildAdapter at runtime
   IdeaBuildAdapter.kt              # IDEA: reads errors from CompileContext
   ClionBuildAdapter.kt             # CLion: accumulates errors from BuildProgressListener events
+  PyCharmBuildAdapter.kt           # PyCharm: accumulates errors from BuildProgressListener events
   BuildErrorListener.kt            # IDEA entry point (CompilationStatusListener → IdeaBuildAdapter)
-  ClionBuildProgressListener.kt    # CLion entry point (BuildProgressListener → ClionBuildAdapter)
+  ClionBuildSubscriber.kt          # CLion entry point (ProjectActivity → BuildViewManager.addListener → ClionBuildAdapter)
+  PyCharmBuildSubscriber.kt        # PyCharm entry point (ProjectActivity → BuildViewManager.addListener → PyCharmBuildAdapter)
 
 src/main/resources/
   META-INF/plugin.xml              # Base descriptor: Compose dep, CLion listener, action
@@ -68,33 +70,36 @@ The plugin runs in both IntelliJ IDEA and CLion from a single ZIP. Build error l
 ### How it works
 
 ```
-plugin.xml  ─────────────────────────────────────────────────────────
-  (always loaded)         ClionBuildProgressListener  ──► ClionBuildAdapter
-                                                               │ PlatformUtils.isCLion()
-plugin-idea.xml           BuildErrorListener          ──► IdeaBuildAdapter
-  (loaded only when                                         │ !PlatformUtils.isCLion()
-   com.intellij.java                                        │
-   is present)            IdeBuildAdapterFactory ──► picks one at runtime
+plugin.xml  ──────────────────────────────────────────────────────────────────
+  (always loaded)         ClionBuildSubscriber (ProjectActivity)
+                            └─ BuildViewManager.addListener(ClionBuildAdapter)   │ PlatformUtils.isCLion()
+                          PyCharmBuildSubscriber (ProjectActivity)
+                            └─ BuildViewManager.addListener(PyCharmBuildAdapter) │ PlatformUtils.isPyCharm()
+plugin-idea.xml           BuildErrorListener ──► IdeaBuildAdapter                │ !isCLion() && !isPyCharm()
+  (loaded only when
+   com.intellij.java      IdeBuildAdapterFactory ──► picks one at runtime
+   is present)
 ```
 
-- **`IdeBuildAdapter`** — marker interface; each adapter also implements its IDE's listener interface.
+- **`IdeBuildAdapter`** — marker interface; each adapter implements its IDE-specific logic.
 - **`IdeBuildAdapterFactory.create(project)`** — single `when` block; returns the right adapter.
-- **`BuildErrorListener`** — thin `CompilationStatusListener`; casts factory result to `IdeaBuildAdapter`, ignores events in CLion (cast → null).
-- **`ClionBuildProgressListener`** — thin `BuildProgressListener`; casts factory result to `ClionBuildAdapter`, ignores events in IDEA (cast → null).
-- **`IdeaBuildAdapter`** — all original IDEA logic, unchanged. Reads errors from `CompileContext`.
-- **`ClionBuildAdapter`** — accumulates `MessageEvent(kind=ERROR)` across the build, flushes on `FinishBuildEvent`.
+- **`BuildErrorListener`** — thin `CompilationStatusListener`; casts factory result to `IdeaBuildAdapter`, no-op in other IDEs (cast → null).
+- **`ClionBuildSubscriber`** / **`PyCharmBuildSubscriber`** — `ProjectActivity`; calls `BuildViewManager.addListener(adapter, project)` on project open. NOTE: `BuildProgressListener` has no message bus `TOPIC` in platform 2025.3 — `BuildViewManager.addListener()` is the only programmatic subscription mechanism.
+- **`IdeaBuildAdapter`** — IDEA logic. Reads errors from `CompileContext`.
+- **`ClionBuildAdapter`** — accumulates `MessageEvent(kind=ERROR)`, flushes on `FinishBuildEvent`.
+- **`PyCharmBuildAdapter`** — same as CLion; `PythonStrategy` preprocessor strips tracebacks, keeps exception lines.
 
 ### plugin.xml layout
 
-- **`plugin.xml`** — always loaded. Declares `com.intellij.java` as **optional** (`config-file="plugin-idea.xml"`). Registers `ClionBuildProgressListener`.
+- **`plugin.xml`** — always loaded. Declares `com.intellij.java` as **optional** (`config-file="plugin-idea.xml"`). Registers `ClionBuildSubscriber` as `<postStartupActivity>`.
 - **`plugin-idea.xml`** — loaded only when `com.intellij.java` is present. Registers `BuildErrorListener`.
 
 ### Adding support for a new IDE
 
-1. **Create `NewIdeBuildAdapter.kt`** — implement `IdeBuildAdapter`; add a `fun onSomeEvent(...)` method that contains the IDE-specific extraction logic. Guard the body with `if (!isActive) return`.
+1. **Create `NewIdeBuildAdapter.kt`** — implement `IdeBuildAdapter`; add a `fun onSomeEvent(...)` method with the IDE-specific extraction logic. Guard with `if (!isActive) return`.
 2. **Add one line to `IdeBuildAdapterFactory`** — e.g. `PlatformUtils.isRider() -> RiderBuildAdapter(project)`.
-3. **Create `NewIdeBuildListener.kt`** — implement the IDE's listener interface; cast the factory result to `NewIdeBuildAdapter` and call its method.
-4. **Register in `plugin.xml`** — add one `<listener>` entry under the `<!-- ADD NEW IDE -->` comment.
+3. **Create `NewIdeSubscriber.kt`** — a `ProjectActivity` that gets the IDE's event manager service and calls its `addListener(...)` method.
+4. **Register in `plugin.xml`** as a `<postStartupActivity>`.
 
 That is all. `IdeBuildAdapter.kt`, `IdeBuildAdapterFactory.kt`, `ErrorQueryPreprocessor.kt`, `StackOverflowSearchService.kt`, and all existing adapters stay untouched.
 
@@ -104,8 +109,9 @@ That is all. `IdeBuildAdapter.kt`, `IdeBuildAdapterFactory.kt`, `ErrorQueryPrepr
 
 | Strategy | Active when | Rules |
 |---|---|---|
-| `JavaKotlinStrategy` | `!PlatformUtils.isCLion()` | Stack frame normalisation, compiler error extraction, `location:`/`symbol:` handling |
+| `JavaKotlinStrategy` | default (IDEA) | Stack frame normalisation, compiler error extraction, `location:`/`symbol:` handling |
 | `CppStrategy` | `PlatformUtils.isCLion()` | Drop `note:` lines, strip `0x…` addresses, strip template arguments |
+| `PythonStrategy` | `PlatformUtils.isPyCharm()` | Drop traceback header/file lines, keep exception lines, handle pytest `E   ` prefix |
 
 To add a new language: add a `private object NewLangStrategy : PreprocessorStrategy` block, add a branch in the `strategy` getter. No existing strategy is modified.
 
@@ -115,5 +121,5 @@ To add a new language: add a `private object NewLangStrategy : PreprocessorStrat
 - `BrowserUtil.browse()` — cross-platform browser launch
 - `org.jetbrains.jewel.bridge.addComposeTab` — add a Compose-based tab to a tool window
 - `com.intellij.util.PlatformUtils` — runtime IDE detection (`isCLion()`, etc.)
-- `com.intellij.build.BuildProgressListener` / `MessageEvent` — base-platform build events (IDEA + CLion)
+- `com.intellij.build.BuildViewManager.addListener()` — programmatic build event subscription (CLion); `BuildProgressListener` has no message bus TOPIC in 2025.3
 - `com.intellij.openapi.compiler.CompilationStatusListener` — Java-plugin build events (IDEA only)

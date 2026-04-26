@@ -29,21 +29,9 @@
                     anchor="right"
                     icon="AllIcons.Toolwindows.ToolWindowPalette"/>
         <projectService serviceImplementation="com.example.StackOverflowSearchService"/>
+        <postStartupActivity implementation="com.example.ClionBuildSubscriber"/>
+        <postStartupActivity implementation="com.example.PyCharmBuildSubscriber"/>
     </extensions>
-
-    <projectListeners>
-        <!-- CLion: CMake / ninja / make build errors via BuildProgressListener.
-             In IntelliJ IDEA this listener is also registered but ClionBuildAdapter
-             checks PlatformUtils.isCLion() and is a no-op when false. -->
-        <listener class="com.example.ClionBuildProgressListener"
-                  topic="com.intellij.build.BuildProgressListener"/>
-
-        <!-- ADD NEW IDE: register its listener class and topic here, then add one
-             branch in IdeBuildAdapterFactory and create the adapter class.
-             Example:
-        <listener class="com.example.RiderBuildListener"
-                  topic="com.jetbrains.rider.build.RiderBuildListener"/> -->
-    </projectListeners>
 
     <actions>
         <action id="com.example.SearchStackOverflow"

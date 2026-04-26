@@ -21,7 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import org.jetbrains.jewel.foundation.theme.JewelTheme
 import com.intellij.ide.BrowserUtil
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
@@ -155,12 +155,13 @@ private fun ErrorNavigationBar(service: StackOverflowSearchService) {
         ) { Text("←") }
 
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            val base = JewelTheme.defaultTextStyle.fontSize
             Text(
                 "Error ${service.currentIndex + 1} / ${service.queries.size}",
-                fontSize = 13.sp,
+                fontSize = base,
                 fontWeight = FontWeight.SemiBold
             )
-            if (service.isLoading) Text("Loading…", fontSize = 11.sp)
+            if (service.isLoading) Text("Loading…", fontSize = base * 0.85f)
         }
 
         OutlinedButton(
@@ -179,17 +180,18 @@ private fun ResultCard(result: SearchResult, openUrl: (String) -> Unit) {
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        Text(result.title, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+        val base = JewelTheme.defaultTextStyle.fontSize
+        Text(result.title, fontWeight = FontWeight.SemiBold, fontSize = base)
         val body = result.answerBody
         if (body != null) {
             val preview = if (body.length > 400) body.take(400).trimEnd() + "…" else body
-            Text(preview, fontSize = 12.sp)
+            Text(preview, fontSize = base * 0.92f)
         } else {
-            Text(result.excerpt, fontSize = 12.sp)
+            Text(result.excerpt, fontSize = base * 0.92f)
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Score: ${result.score}", fontSize = 11.sp)
-            Text("Answers: ${result.answerCount}", fontSize = 11.sp)
+            Text("Score: ${result.score}", fontSize = base * 0.85f)
+            Text("Answers: ${result.answerCount}", fontSize = base * 0.85f)
         }
         OutlinedButton(onClick = { openUrl(result.link) }) {
             Text("View on Stack Overflow")
