@@ -8,7 +8,10 @@ To combat this we want to make debugging far less AI dependant by integrating St
 
 ## What it does
 
-- 
+- Automatically obtains the top 3 answers from StackOverFlow API and displays them in an IDE window.
+- Adds an option to view the StackOverFlow site on a browser within the IDE.
+- Allows the user to cycle between multiple errors.
+- Highlights the line where the error is located.
 
 ## How we built it
 
