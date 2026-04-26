@@ -11,7 +11,8 @@ import com.intellij.util.PlatformUtils
  */
 object IdeBuildAdapterFactory {
     fun create(project: Project): IdeBuildAdapter = when {
-        PlatformUtils.isCLion() -> ClionBuildAdapter(project)
-        else                    -> IdeaBuildAdapter(project)
+        PlatformUtils.isCLion()   -> ClionBuildAdapter(project)
+        PlatformUtils.isPyCharm() -> PyCharmBuildAdapter(project)
+        else                      -> IdeaBuildAdapter(project)
     }
 }

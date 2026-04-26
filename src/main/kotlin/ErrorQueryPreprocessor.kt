@@ -92,13 +92,45 @@ private object CppStrategy : PreprocessorStrategy {
 }
 
 // ---------------------------------------------------------------------------
+// Python strategy (PyCharm)
+// ---------------------------------------------------------------------------
+
+private object PythonStrategy : PreprocessorStrategy {
+    // "  File "/path/to/foo.py", line 42, in bar" — drop; exception line is more useful
+    private val fileLineRegex = Regex("""^\s*File ".+", line \d+""")
+    private val ansiRegex     = Regex("\\[[0-9;]*m")
+    // pytest "E   SomeError: message" — strip the E prefix
+    private val pytestERegex  = Regex("""^E\s{3}(.+)$""")
+
+    override fun processLine(line: String): String {
+        val clean = ansiRegex.replace(line.trim(), "")
+        if (clean == "Traceback (most recent call last):") return ""
+        if (clean.startsWith("During handling of the above exception")) return ""
+        if (clean.startsWith("The above exception was the direct cause")) return ""
+        if (fileLineRegex.containsMatchIn(clean)) return ""
+        // Drop indented source-code context lines that carry no exception info
+        if (line.startsWith("    ") && !clean.contains(": ")) return ""
+        pytestERegex.matchEntire(clean)?.let { m ->
+            val content = m.groupValues[1]
+            // Keep only lines that look like ExceptionType: message
+            return if (content.contains(": ")) content else ""
+        }
+        return clean
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Public façade — picks strategy at runtime; signature is unchanged.
 // ---------------------------------------------------------------------------
 
 object ErrorQueryPreprocessor {
 
     private val strategy: PreprocessorStrategy
-        get() = if (PlatformUtils.isCLion()) CppStrategy else JavaKotlinStrategy
+        get() = when {
+            PlatformUtils.isCLion()   -> CppStrategy
+            PlatformUtils.isPyCharm() -> PythonStrategy
+            else                      -> JavaKotlinStrategy
+        }
 
     fun preprocess(raw: String): String =
         raw.lines()
